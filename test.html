@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Norko GraphQL API Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .result { background: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 5px; }
+        button { background: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 3px; cursor: pointer; margin: 10px 5px; }
+        button:hover { background: #005a8b; }
+        pre { white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔥 Norko GraphQL API Test</h1>
+        
+        <button onclick="testHealth()">Test Health</button>
+        <button onclick="testProducts()">Test Products</button>
+        <button onclick="testCategories()">Test Categories</button>
+        
+        <div id="result" class="result">
+            <h3>Results will appear here...</h3>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'https://norko-graphql-api-production.up.railway.app/graphql';
+        
+        async function makeQuery(query) {
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ query })
+                });
+                
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                return { error: error.message };
+            }
+        }
+        
+        async function testHealth() {
+            const query = `
+                query {
+                    health
+                }
+            `;
+            
+            const result = await makeQuery(query);
+            document.getElementById('result').innerHTML = `
+                <h3>Health Check Result:</h3>
+                <pre>${JSON.stringify(result, null, 2)}</pre>
+            `;
+        }
+        
+        async function testProducts() {
+            const query = `
+                query {
+                    products(first: 3) {
+                        name
+                        category
+                        price
+                        currency
+                        specifications {
+                            wattage
+                        }
+                    }
+                }
+            `;
+            
+            const result = await makeQuery(query);
+            document.getElementById('result').innerHTML = `
+                <h3>Products Query Result:</h3>
+                <pre>${JSON.stringify(result, null, 2)}</pre>
+            `;
+        }
+        
+        async function testCategories() {
+            const query = `
+                query {
+                    categories
+                }
+            `;
+            
+            const result = await makeQuery(query);
+            document.getElementById('result').innerHTML = `
+                <h3>Categories Query Result:</h3>
+                <pre>${JSON.stringify(result, null, 2)}</pre>
+            `;
+        }
+    </script>
+</body>
+</html>
