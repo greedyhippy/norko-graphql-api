@@ -122,87 +122,6 @@ async function loadProductData() {
   }
 }
 
-// GraphQL Schema Definition
-const typeDefs = `#graphql
-  type Product {
-    id: ID!
-    name: String!
-    path: String!
-    category: String!
-    description: Description!
-    specifications: Specifications!
-    features: Features!
-    images: [Image!]!
-    variants: [ProductVariant!]!
-    price: Float!
-    currency: String!
-    sourceUrl: String
-    extractedAt: String
-    warranty: String
-  }
-
-  type Description {
-    html: String!
-    plainText: String!
-  }
-
-  type Specifications {
-    wattage: Int!
-    dimensions: String!
-    weight: Float!
-    coverage: String
-    mounting: String
-    efficiency: String
-  }
-
-  type Features {
-    html: String!
-    plainText: String!
-  }
-
-  type Image {
-    url: String!
-    altText: String!
-  }
-
-  type ProductVariant {
-    id: ID!
-    name: String!
-    sku: String!
-    price: Float!
-    currency: String!
-    stock: Int!
-    isDefault: Boolean!
-  }
-
-  input ProductFilter {
-    category: String
-    minPrice: Float
-    maxPrice: Float
-    minWattage: Int
-    maxWattage: Int
-  }
-
-  type APIMetadata {
-    scrapedAt: String!
-    totalProducts: Int!
-    source: String!
-    categories: [String!]!
-  }
-
-  type Query {
-    products(first: Int = 20, filter: ProductFilter): [Product!]!
-    product(id: ID!): Product
-    categories: [String!]!
-    productsByCategory(category: String!): [Product!]!
-    searchProducts(query: String!): [Product!]!
-    productsByPriceRange(minPrice: Float!, maxPrice: Float!): [Product!]!
-    productsByWattage(minWattage: Int!, maxWattage: Int!): [Product!]!
-    metadata: APIMetadata!
-    health: String!
-  }
-`;
-
 // GraphQL Resolvers
 const resolvers = {
   Query: {
@@ -580,57 +499,6 @@ async function startServer() {
     })
   );
 
-  // Serve static images from scraper downloads
-  const imagesPath = path.join(__dirname, '../heatshop-scraper/images');
-  app.use('/images', express.static(imagesPath, {
-    maxAge: '1d', // Cache images for 1 day
-    etag: true,
-    lastModified: true,
-    setHeaders: (res, path) => {
-      // Set proper content types for images
-      if (path.endsWith('.jpg') || path.endsWith('.jpeg')) {
-        res.setHeader('Content-Type', 'image/jpeg');
-      } else if (path.endsWith('.png')) {
-        res.setHeader('Content-Type', 'image/png');
-      } else if (path.endsWith('.webp')) {
-        res.setHeader('Content-Type', 'image/webp');
-      }
-      
-      // Add CORS headers for images
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    }
-  }));
-
-  // Image metadata endpoint (optional - for debugging)
-  app.get('/images-info', (req, res) => {
-    try {
-      const imagesDir = path.join(__dirname, '../heatshop-scraper/images');
-      const imageFiles = fs.readdirSync(imagesDir).filter(file => 
-        file.match(/\.(jpg|jpeg|png|webp)$/i)
-      );
-      
-      const imageInfo = imageFiles.map(filename => {
-        const filePath = path.join(imagesDir, filename);
-        const stats = fs.statSync(filePath);
-        return {
-          filename,
-          size: stats.size,
-          modified: stats.mtime,
-          url: `/images/${filename}`
-        };
-      });
-      
-      res.json({
-        totalImages: imageFiles.length,
-        totalSize: imageInfo.reduce((sum, img) => sum + img.size, 0),
-        images: imageInfo.slice(0, 20) // Limit to first 20 for response size
-      });
-    } catch (error) {
-      res.status(500).json({ error: 'Could not read images directory' });
-    }
-  });
-
   // Enhanced health check endpoint
   app.get('/health', (req, res) => {
     res.json({
@@ -656,6 +524,110 @@ async function startServer() {
       authentication: AUTH_REQUIRED ? 'enabled' : 'disabled',
       dataSource: productsMetadata.source || 'unknown',
       lastScraped: productsMetadata.scrapedAt || 'unknown'
+    });
+  });
+    minPrice: Float
+    maxPrice: Float
+    minWattage: Int
+    maxWattage: Int
+  }
+
+  type APIMetadata {
+    scrapedAt: String!
+    totalProducts: Int!
+    source: String!
+    categories: [String!]!
+  }
+
+  type Query {
+    products(first: Int = 20, filter: ProductFilter): [Product!]!
+    product(id: ID!): Product
+    categories: [String!]!
+    productsByCategory(category: String!): [Product!]!
+    searchProducts(query: String!): [Product!]!
+    productsByPriceRange(minPrice: Float!, maxPrice: Float!): [Product!]!
+    productsByWattage(minWattage: Int!, maxWattage: Int!): [Product!]!
+    metadata: APIMetadata!
+    health: String!
+  }
+`;
+
+// Express Server Setup
+async function startServer() {
+  const app = express();
+  const httpServer = http.createServer(app);
+
+  console.log('🚀 Starting Apollo Server...');
+
+  // Create Apollo Server with authentication
+  const server = new ApolloServer({
+    typeDefs,
+    resolvers,
+    plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
+    
+    // Add authentication context
+    context: createAuthContext,
+    
+    // Security settings for production
+    introspection: process.env.NODE_ENV !== 'production',
+    
+    // Format errors to not expose sensitive information
+    formatError: (error) => {
+      console.error('GraphQL Error:', error);
+      
+      // In production, sanitize error messages
+      if (process.env.NODE_ENV === 'production') {
+        if (error.message.includes('Authorization') || error.message.includes('authentication')) {
+          return new Error('Authentication required');
+        }
+        if (error.message.includes('Invalid')) {
+          return new Error('Authentication failed');
+        }
+        return new Error('Internal server error');
+      }
+      
+      return error;
+    }
+  });
+
+  // CRITICAL: Start the server before applying middleware
+  await server.start();
+  console.log('✅ Apollo Server started successfully');
+
+  // Apply middleware with authentication and rate limiting
+  app.use(
+    '/graphql',
+    apiLimiter,  // Add rate limiting
+    cors({
+      origin: process.env.CORS_ORIGIN || '*',
+      credentials: true
+    }),
+    bodyParser.json({ limit: '50mb' }),
+    expressMiddleware(server, {
+      context: createAuthContext  // This applies authentication
+    })
+  );
+
+  // Enhanced health check endpoint
+  app.get('/health', (req, res) => {
+    res.json({
+      status: 'healthy',
+      products: productsData.length,
+      timestamp: new Date().toISOString(),
+      authentication: AUTH_REQUIRED ? 'enabled' : 'disabled',
+      environment: process.env.NODE_ENV || 'development'
+    });
+  });
+
+  // Root endpoint
+  app.get('/', (req, res) => {
+    res.json({
+      message: '🔥 Norko GraphQL API',
+      products: productsData.length,
+      graphql: '/graphql',
+      playground: 'https://studio.apollographql.com/sandbox/explorer',
+      health: '/health',
+      authentication: AUTH_REQUIRED ? 'enabled' : 'disabled'
     });
   });
 
@@ -684,7 +656,6 @@ async function startServer() {
               .status { padding: 10px; border-radius: 3px; margin-bottom: 20px; }
               .status.enabled { background: #4a7c59; }
               .status.disabled { background: #7c4a4a; }
-              .data-info { background: #2a2a2a; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
           </style>
       </head>
       <body>
@@ -694,11 +665,6 @@ async function startServer() {
                   <p>Interactive GraphQL testing interface with ${productsData.length} infrared heater products</p>
                   <div class="status ${AUTH_REQUIRED ? 'enabled' : 'disabled'}">
                       Authentication: ${AUTH_REQUIRED ? '🔐 ENABLED' : '🔓 DISABLED'}
-                  </div>
-                  <div class="data-info">
-                      <strong>Data Source:</strong> ${productsMetadata.source || 'unknown'}<br>
-                      <strong>Last Updated:</strong> ${productsMetadata.scrapedAt || 'unknown'}<br>
-                      <strong>Products Loaded:</strong> ${productsData.length}
                   </div>
               </div>
               
@@ -713,11 +679,9 @@ async function startServer() {
               
               <div class="examples">
                   <button class="example-btn" onclick="loadExample('health')">Health Check</button>
-                  <button class="example-btn" onclick="loadExample('metadata')">API Metadata</button>
                   <button class="example-btn" onclick="loadExample('products')">Get Products</button>
                   <button class="example-btn" onclick="loadExample('categories')">Get Categories</button>
                   <button class="example-btn" onclick="loadExample('search')">Search Products</button>
-                  <button class="example-btn" onclick="loadExample('filter')">Filter by Wattage</button>
               </div>
               
               <div class="query-section">
@@ -732,10 +696,7 @@ query GetProducts {
     currency
     specifications {
       wattage
-      dimensions
-      efficiency
     }
-    warranty
   }
 }</textarea>
                   </div>
@@ -757,14 +718,6 @@ query GetProducts {
                   health: \`query {
   health
 }\`,
-                  metadata: \`query {
-  metadata {
-    scrapedAt
-    totalProducts
-    source
-    categories
-  }
-}\`,
                   products: \`query GetProducts {
   products(first: 3) {
     name
@@ -774,9 +727,7 @@ query GetProducts {
     specifications {
       wattage
       dimensions
-      efficiency
     }
-    warranty
   }
 }\`,
                   categories: \`query GetCategories {
@@ -789,16 +740,6 @@ query GetProducts {
     specifications {
       wattage
     }
-  }
-}\`,
-                  filter: \`query FilterByWattage {
-  productsByWattage(minWattage: 500, maxWattage: 1000) {
-    name
-    specifications {
-      wattage
-      efficiency
-    }
-    price
   }
 }\`
               };
@@ -870,18 +811,16 @@ query GetProducts {
   });
 
   const PORT = process.env.PORT || 4000;
-  const HOST = process.env.HOST || '0.0.0.0'; // Railway needs 0.0.0.0 binding
   
-  httpServer.listen(PORT, HOST, () => {
+  httpServer.listen(PORT, () => {
     console.log(`🚀 Server ready at http://localhost:${PORT}/graphql`);
-    console.log(`📊 Loaded ${productsData.length} products from ${productsMetadata.source || 'unknown'}`);
+    console.log(`📊 Loaded ${productsData.length} products`);
     console.log(`🎮 GraphQL Playground: http://localhost:${PORT}/playground`);
     console.log(`🔐 Authentication: ${AUTH_REQUIRED ? 'ENABLED' : 'DISABLED'}`);
     if (AUTH_REQUIRED) {
       console.log(`🔑 API Key: ${API_KEY ? 'Set' : 'Missing'}`);
       console.log(`🎫 JWT Secret: ${JWT_SECRET ? 'Set' : 'Missing'}`);
     }
-    console.log(`📅 Data last scraped: ${productsMetadata.scrapedAt || 'unknown'}`);
   });
 }
 
