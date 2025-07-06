@@ -7,10 +7,7 @@ const http = require('http');
 
 // Common Railway URL patterns
 const possibleUrls = [
-  'https://norko-graphql-api-production.up.railway.app',
-  'https://norko-graphql-api.up.railway.app',
-  'https://web-production.up.railway.app',
-  'https://web.up.railway.app'
+  // Add your Railway URLs here
 ];
 
 async function testUrl(url) {
