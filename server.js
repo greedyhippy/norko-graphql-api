@@ -14,6 +14,13 @@
  * @since 2025-07-06
  */
 
+// Load environment variables
+try {
+  require('dotenv').config();
+} catch (error) {
+  console.log('⚠️  dotenv not available, using system environment variables');
+}
+
 const { ApolloServer } = require('@apollo/server');
 const { expressMiddleware } = require('@apollo/server/express4');
 const { ApolloServerPluginDrainHttpServer } = require('@apollo/server/plugin/drainHttpServer');
@@ -35,6 +42,7 @@ console.log('🔐 Authentication Config:');
 console.log('- API_KEY:', API_KEY ? '✅ Set' : '❌ Missing');
 console.log('- JWT_SECRET:', JWT_SECRET ? '✅ Set' : '❌ Missing');
 console.log('- AUTH_REQUIRED:', AUTH_REQUIRED);
+console.log('- NODE_ENV:', process.env.NODE_ENV || 'undefined');
 
 // Enhanced data loading with fallback and validation
 let productsData = [];
@@ -465,12 +473,16 @@ function generateSampleProducts() {
 
 // Authentication context function
 function createAuthContext({ req }) {
-  // Skip authentication in development (if AUTH_REQUIRED is false)
-  if (process.env.NODE_ENV === 'development' && !AUTH_REQUIRED) {
-    console.log('🔓 Development mode - authentication bypassed');
+  console.log('🔍 Auth check - AUTH_REQUIRED:', AUTH_REQUIRED, 'type:', typeof AUTH_REQUIRED);
+  
+  // Skip authentication if not required (default is false for local development)
+  if (!AUTH_REQUIRED) {
+    console.log('🔓 Authentication disabled - access granted');
     return { authenticated: true, user: { role: 'development' } };
   }
 
+  console.log('🔒 Authentication required - checking headers...');
+  
   // Extract token from Authorization header
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -869,7 +881,7 @@ query GetProducts {
     `);
   });
 
-  const PORT = process.env.PORT || 4000;
+  const PORT = process.env.PORT || 4001;
   const HOST = process.env.HOST || '0.0.0.0'; // Railway needs 0.0.0.0 binding
   
   httpServer.listen(PORT, HOST, () => {
